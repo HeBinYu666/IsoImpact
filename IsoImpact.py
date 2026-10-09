@@ -31,8 +31,8 @@ group.add_argument(
 )
 group.add_argument(
     "-r", dest="reference_pair", nargs=2,
-    metavar=("REFERENCE_ISOFORM", "COMPARED_ISOFORM"),
-    help="Compare two isoforms in the given order as COMPARED - REFERENCE"
+    metavar=("ALTERNATIVE1_ISOFORM", "ALTERNATIVE2_ISOFORM"),
+    help="Compare two isoforms in the given order as alternative2 - alternative1"
 )
 
 parser.add_argument("-g", dest="gtf", required=True, help="Path to the matching GTF annotation file")
@@ -203,12 +203,14 @@ def signed_normalized_difference(compared_value, reference_value):
     try:
         compared_value = float(compared_value)
         reference_value = float(reference_value)
-    except (TypeError, ValueError):
-        return 0
-    denominator = abs(compared_value) + abs(reference_value)
-    if denominator == 0:
-        return 0
-    return round((compared_value - reference_value) / denominator, 4)
+    except (TypeError, ValueError, OverflowError):
+        return float('nan')
+    # Relative change is measured against the canonical/reference isoform.
+    # A zero reference value has no finite relative-change denominator.
+    if not np.isfinite(compared_value) or not np.isfinite(reference_value) or reference_value == 0:
+        return float('nan')
+    relative_change = (compared_value - reference_value) / reference_value
+    return relative_change if np.isfinite(relative_change) else float('nan')
 
 # =====================================================================
 # 5. Parse the GTF annotation
@@ -264,10 +266,10 @@ if COMPARISON_MODE == "reference_pair":
         parser.error("-r requires two isoforms from the same gene.")
     can_tx = INPUT_TXS[0]
     alt_txs = [INPUT_TXS[1]]
-    reference_label = "Reference"
-    compared_label = "Compared"
-    reference_feature_prefix = "Reference"
-    compared_feature_prefix = "Compared"
+    reference_label = "alternative1"
+    compared_label = "alternative2"
+    reference_feature_prefix = "alternative1"
+    compared_feature_prefix = "alternative2"
 else:
     can_tx = next((tx for tx in INPUT_TXS if tx_info[tx]['is_canonical']), None)
     if not can_tx:
@@ -356,7 +358,7 @@ for alt_tx in alt_txs:
             row[f"Normalized_Delta_{k}"] = signed_normalized_difference(feat_a.get(k, 0), feat_c_copy[k])
         except:
             row[f"Delta_{k}"] = 0
-            row[f"Normalized_Delta_{k}"] = 0
+            row[f"Normalized_Delta_{k}"] = float('nan')
             
     rows.append(row)
 
@@ -372,7 +374,7 @@ if not normalized_delta_cols:
     )
 
 csv_filename = os.path.join(OUT_DIR, "IsoImpact_features.csv")
-df_all_features.to_csv(csv_filename, index=False)
+df_all_features.to_csv(csv_filename, index=False, na_rep='NA')
 print(f"[IsoImpact] Feature matrix written to {csv_filename} ({len(rows[0])} columns).")
 
 # =====================================================================
@@ -533,10 +535,6 @@ ax_new = fig.add_subplot(gs[1, :])
 ax_new.set_title('B', loc='left', fontsize=22, fontweight='bold', pad=10)
 
 if not df_all_features.empty:
-    mean_absolute_delta = df_all_features[normalized_delta_cols].abs().mean(axis=0)
-    sorted_delta_cols = mean_absolute_delta.sort_values(ascending=False).index.tolist()
-    sorted_feat_names = [c.replace('Normalized_Delta_', '') for c in sorted_delta_cols]
-
     isoform_styles = [
         {'color': '#0072B2'},
         {'color': '#E69F00'},
@@ -549,33 +547,48 @@ if not df_all_features.empty:
     isoform_plot_data = []
     for i, (_, row) in enumerate(df_all_features.iterrows()):
         alt_id = row[f'{compared_label}_Transcript_ID']
-        y_vals = [float(row[column]) for column in sorted_delta_cols]
-        isoform_plot_data.append((alt_id, y_vals, isoform_styles[i % len(isoform_styles)]))
+        row_delta = pd.to_numeric(row[normalized_delta_cols], errors='coerce')
+        row_delta = row_delta[np.isfinite(row_delta)]
+        row_sorted_delta_cols = row_delta.sort_values(ascending=False, kind='mergesort').index.tolist()
+        row_sorted_feat_names = [c.replace('Normalized_Delta_', '') for c in row_sorted_delta_cols]
+        y_vals = [float(row_delta[column]) for column in row_sorted_delta_cols]
+        isoform_plot_data.append((alt_id, y_vals, row_sorted_feat_names, isoform_styles[i % len(isoform_styles)]))
 
-    ax_new.set_ylim(-1.05, 1.05)
+    plot_limit = 50.0
+    ax_new.set_ylim(-plot_limit, plot_limit)
 
-    for idx, (alt_id, y_vals, style) in enumerate(isoform_plot_data):
+    for idx, (alt_id, y_vals, _, style) in enumerate(isoform_plot_data):
         x_indices = list(range(len(y_vals)))
+        # Clip display values only, after sorting the original relative changes.
+        plot_values = np.clip(y_vals, -plot_limit, plot_limit)
         
         ax_new.vlines(
-            x_indices, 0, y_vals,
+            x_indices, 0, plot_values,
             color=style['color'],
             alpha=0.55,
             linewidth=0.6,
             label=alt_id,
             zorder=3
         )
+        for mask, marker, boundary in (
+            (np.asarray(y_vals) > plot_limit, '^', plot_limit),
+            (np.asarray(y_vals) < -plot_limit, 'v', -plot_limit),
+        ):
+            if mask.any():
+                ax_new.scatter(np.asarray(x_indices)[mask], np.full(mask.sum(), boundary),
+                               marker=marker, s=14, color=style['color'],
+                               clip_on=False, zorder=4)
 
     ax_new.axhline(0, color='black', linewidth=1.5, zorder=2)
     ax_new.set_xlabel(
-        'Feature Rank (ordered by mean absolute normalized difference)',
+        'Feature rank (descending within each isoform pair)',
         fontsize=20, fontweight='bold'
     )
-    difference_axis_label = 'Signed normalized difference'
+    difference_axis_label = 'Relative feature change'
     if COMPARISON_MODE == 'reference_pair':
-        difference_axis_label += '\n(Compared - Reference)'
+        difference_axis_label += '\n(alternative2 - alternative1) / alternative1'
     else:
-        difference_axis_label += '\n(Alternative - Canonical)'
+        difference_axis_label += '\n(Alternative - Canonical) / Canonical'
     ax_new.set_ylabel(difference_axis_label, fontsize=20, fontweight='bold')
     ax_new.tick_params(axis='both', labelsize=18)
     plt.setp(ax_new.get_xticklabels(), fontweight='bold')
@@ -584,20 +597,28 @@ if not df_all_features.empty:
     ax_new.spines['right'].set_visible(False)
     y_vis_hi = ax_new.get_ylim()[1]
     y_vis_lo = ax_new.get_ylim()[0]
+    label_count = max(len(isoform_plot_data), 1)
+    positive_label_y = np.linspace(
+        0.90, max(0.56, 0.90 - 0.08 * (label_count - 1)), label_count
+    )
+    negative_label_y = np.linspace(
+        0.10, min(0.44, 0.10 + 0.08 * (label_count - 1)), label_count
+    )
 
-    for iso_idx, (alt_id, y_vals, style) in enumerate(isoform_plot_data):
+    for iso_idx, (alt_id, y_vals, feature_names, style) in enumerate(isoform_plot_data):
         positive_indices = [index for index, value in enumerate(y_vals) if value > 0]
         if positive_indices:
             feature_index = max(positive_indices, key=lambda index: y_vals[index])
             value = y_vals[feature_index]
             ax_new.annotate(
-                sorted_feat_names[feature_index],
+                feature_names[feature_index],
                 xy=(feature_index, min(value, y_vis_hi * 0.98)),
-                xytext=(15, -15 - iso_idx * 18),
-                textcoords='offset points',
-                fontsize=11, fontweight='bold', color=style['color'],
+                xytext=(0.04, positive_label_y[iso_idx]),
+                textcoords='axes fraction',
+                fontsize=10, fontweight='bold', color=style['color'],
                 ha='left', va='center',
                 arrowprops=dict(arrowstyle='->', color=style['color'], lw=0.9),
+                bbox=dict(facecolor='white', edgecolor='none', alpha=0.78, pad=0.4),
                 clip_on=False
             )
 
@@ -606,24 +627,25 @@ if not df_all_features.empty:
             feature_index = min(negative_indices, key=lambda index: y_vals[index])
             value = y_vals[feature_index]
             ax_new.annotate(
-                sorted_feat_names[feature_index],
+                feature_names[feature_index],
                 xy=(feature_index, max(value, y_vis_lo * 0.98)),
-                xytext=(15, 15 + iso_idx * 18),
-                textcoords='offset points',
-                fontsize=11, fontweight='bold', color=style['color'],
-                ha='left', va='center',
+                xytext=(0.96, negative_label_y[iso_idx]),
+                textcoords='axes fraction',
+                fontsize=10, fontweight='bold', color=style['color'],
+                ha='right', va='center',
                 arrowprops=dict(arrowstyle='->', color=style['color'], lw=0.9),
+                bbox=dict(facecolor='white', edgecolor='none', alpha=0.78, pad=0.4),
                 clip_on=False
             )
     legend_elements_new = [
         patches.Patch(facecolor=style['color'], edgecolor='dimgray', label=alt_id)
-        for alt_id, _, style in isoform_plot_data
+        for alt_id, _, _, style in isoform_plot_data
     ]
     ax_new.legend(
         handles=legend_elements_new,
         loc='center left', bbox_to_anchor=(1.01, 0.5), frameon=False,
         prop={'size': 18, 'weight': 'bold'},
-        title='Alternative Isoforms' if COMPARISON_MODE == 'canonical' else 'Compared Isoform',
+        title='Alternative Isoforms' if COMPARISON_MODE == 'canonical' else 'Selected Isoforms',
         title_fontproperties={'size': 20, 'weight': 'bold'}
     )
 output_filename = os.path.join(OUT_DIR, "IsoImpact_figure.png")
