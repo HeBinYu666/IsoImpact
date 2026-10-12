@@ -14,11 +14,11 @@ cd IsoImpact
 IsoImpact is implemented in Python. It requires Python 3.8 or higher. The required Python packages are listed in `requirements.txt`:
 
 ```text
-numpy>=1.21
-pandas>=1.3
-matplotlib>=3.5
-biopython>=1.79
-propy3>=1.1.1
+numpy==1.24.4
+pandas==2.0.3
+matplotlib==3.7.5
+biopython==1.83
+propy3==1.1.1
 ```
 
 Install these packages with:
@@ -27,16 +27,26 @@ Install these packages with:
 pip install -r requirements.txt
 ```
 
+The fixed dependency versions above are the versions used for the reported analyses.
+
+IsoImpact uses the fixed 966-feature schema documented in Supplementary Table S2.
+Every output row contains the same `Can_*`, `Alt_*`, and raw `Delta_*` feature columns in that order.
+If a feature cannot be calculated, its value and corresponding raw delta are written as `NA`.
+Relative changes are still calculated in memory for ranking and visualization, but
+`Normalized_Delta_*` columns are not written to `IsoImpact_features.csv`.
+
 ## 2. Command-line options
 
 IsoImpact implements the following input options:
 
 ```text
 -i / --isoform   Ensembl isoform IDs to be compared. At least two isoform IDs are required.
+-r               Compare two isoforms in the supplied order as alternative2 - alternative1.
 -g / --gtf       Path to the GTF annotation file.
 -f / --fasta     Path to the protein FASTA file.
 -d / --domain    Path to the domain-coordinate file.
 -o / --outdir    Directory where output files will be saved. The default is the current directory.
+-z               Also write the difference-focused transcript-structure figure.
 ```
 
 The isoform IDs (`-i`) must match the supplied GTF file. The GTF file (`-g`) provides isoform, exon, CDS, UTR, gene, and protein ID annotations for the selected isoforms. The protein FASTA file (`-f`) provides the corresponding amino acid sequences. The domain-coordinate file (`-d`) provides the protein-domain annotations used for domain mapping and visualization. For human and mouse analyses, IsoImpact provides pre-built domain-coordinate files under the `data/` directory.
@@ -89,7 +99,8 @@ IsoImpact also writes the feature matrix of all queried isoforms into the file b
 results/human_isoforms/IsoImpact_features.csv
 ```
 
-`IsoImpact_features.csv` contains gene and isoform information, protein features, genomic span, and domain comparison results. To illustrate, part of the feature-matrix from four human ***MROH7*** isoforms is shown below. The complete table is available as [`data/example_output/IsoImpact_features.csv`](data/example_output/IsoImpact_features.csv).
+`IsoImpact_features.csv` contains gene and isoform information, protein features, genomic span, and domain comparison results.
+The feature columns follow the fixed 966-feature schema from Supplementary Table S2; normalized relative-change values used for figure ranking are kept in memory and are not exported as CSV columns. To illustrate, part of the feature-matrix from four human ***MROH7*** isoforms is shown below. The complete table is available as [`data/example_output/IsoImpact_features.csv`](data/example_output/IsoImpact_features.csv).
 
 | Gene ID | Canonical isoform | Alternative isoform | Alternative domains | Lost domains | Gained domains | Total domain change |
 | --- | --- | --- | --- | --- | --- | ---: |
@@ -265,3 +276,5 @@ If any questions about using IsoImpact, please contact:
 - Hong-Dong Li: hongdong@csu.edu.cn
 
 You can also click the **Issues** tab at the top of this GitHub page to report problems.
+
+
