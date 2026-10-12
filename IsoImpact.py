@@ -15,6 +15,34 @@ REQUIRED_DOMAIN_COLUMNS = [
 ]
 
 
+# Fixed feature schema; order matches Supplementary Table S2 (966 features).
+FEATURE_NAMES = [
+    "pI", "GRAVY", "Instability_Index",
+    "Extinction_Coefficient_Reduced", "Extinction_Coefficient_Oxidized",
+    "SecStruct_Helix", "SecStruct_Turn", "SecStruct_Sheet",
+]
+FEATURE_NAMES += [f"AAC_{aa}" for aa in "ACDEFGHIKLMNPQRSTVWY"]
+FEATURE_NAMES += ["Aliphatic_Index"]
+for _prop in (
+    "Hydrophobicity", "NormVDWVolume", "Polarity", "Polarizability",
+    "Charge", "SecondaryStruct", "SolventAccess",
+):
+    FEATURE_NAMES += [f"CTD_C_{_prop}_G{group}" for group in range(1, 4)]
+    FEATURE_NAMES += [f"CTD_T_{_prop}_{pair}" for pair in ("12", "13", "23")]
+    for _group in range(1, 4):
+        FEATURE_NAMES += [f"CTD_D_{_prop}_G{_group}_{quantile}p" for quantile in (1, 25, 50, 75, 100)]
+FEATURE_NAMES += [f"PAAC{i}" for i in range(1, 31)]
+FEATURE_NAMES += [f"APAAC{i}" for i in range(1, 41)]
+for _method in ("MoreauBrotoAuto", "MoranAuto", "GearyAuto"):
+    for _prop in (
+        "Hydrophobicity", "AvFlexibility", "Polarizability", "FreeEnergy",
+        "ResidueASA", "ResidueVol", "Steric", "Mutability",
+    ):
+        FEATURE_NAMES += [f"{_method}_{_prop}{lag}" for lag in range(1, 31)]
+if len(FEATURE_NAMES) != 966 or len(set(FEATURE_NAMES)) != 966:
+    raise RuntimeError("The fixed feature schema must contain 966 unique features.")
+
+
 def open_text(path):
     if path.endswith(".gz"):
         return gzip.open(path, "rt")
@@ -116,24 +144,28 @@ os.makedirs(OUT_DIR, exist_ok=True)
 # 4. Protein sequence feature extraction
 # =====================================================================
 def get_high_dim_propy3_features(seq):
-    if not seq or len(seq) < 35: return {}
+    if not seq or len(seq) < 35:
+        return {}
     feats = {}
     try:
         from propy.PyPro import GetProDes
         des = GetProDes(seq)
-        try: feats.update(des.GetPAAC())
-        except: pass
-        try: feats.update(des.GetAPAAC())
-        except: pass
-        try: feats.update(des.GetMoreauBrotoAuto())
-        except: pass
-        try: feats.update(des.GetMoranAuto())
-        except: pass
-        try: feats.update(des.GetGearyAuto())
-        except: pass
     except Exception:
-        pass
+        return feats
+    for method_name, method in (
+        ("PAAC", des.GetPAAC),
+        ("APAAC", des.GetAPAAC),
+        ("MoreauBrotoAuto", des.GetMoreauBrotoAuto),
+        ("MoranAuto", des.GetMoranAuto),
+        ("GearyAuto", des.GetGearyAuto),
+    ):
+        try:
+            feats.update(method())
+        except Exception:
+            # The fixed schema below records any unavailable descriptors as NA.
+            pass
     return feats
+
 
 def calculate_ctd(seq):
     if not seq or len(seq) == 0: return {}
@@ -174,28 +206,51 @@ def calculate_ctd(seq):
                     ctd[feat_name] = round(pos_list[target_idx] / seq_len, 4)
     return ctd
 
+
 def get_all_features(seq):
-    if not seq or len(seq) == 0: return {"MW": 0}
+    # Always return the complete fixed schema. Unavailable values remain NA.
+    feats = {name: float("nan") for name in FEATURE_NAMES}
+    feats["MW"] = float("nan")
+    if not seq:
+        return feats
     seq = seq.replace("X", "").replace("U", "").replace("Z", "").replace("B", "")
     if not seq:
-        return {"MW": 0}
-    pa = ProteinAnalysis(seq)
-    feats = {"MW": round(pa.molecular_weight(), 2), 
-             "pI": round(pa.isoelectric_point(), 4), 
-             "GRAVY": round(pa.gravy(), 4), 
-             "Instability_Index": round(pa.instability_index(), 4)}
-    extinction = pa.molar_extinction_coefficient()
-    feats["Extinction_Coefficient_Reduced"] = extinction[0]
-    feats["Extinction_Coefficient_Oxidized"] = extinction[1]
-    sec = pa.secondary_structure_fraction()
-    feats["SecStruct_Helix"], feats["SecStruct_Turn"], feats["SecStruct_Sheet"] = round(sec[0],4), round(sec[1],4), round(sec[2],4)
-    aac = pa.amino_acids_percent
-    for aa, pct in aac.items(): feats[f"AAC_{aa}"] = round(pct, 4)
-    mole_pct_A, mole_pct_V, mole_pct_I, mole_pct_L = aac.get('A', 0)*100, aac.get('V', 0)*100, aac.get('I', 0)*100, aac.get('L', 0)*100
-    feats["Aliphatic_Index"] = round(mole_pct_A + 2.9 * mole_pct_V + 3.9 * (mole_pct_I + mole_pct_L), 4)
-    
-    feats.update(calculate_ctd(seq))
-    feats.update(get_high_dim_propy3_features(seq))
+        return feats
+    try:
+        pa = ProteinAnalysis(seq)
+        feats["MW"] = round(pa.molecular_weight(), 2)
+        feats["pI"] = round(pa.isoelectric_point(), 4)
+        feats["GRAVY"] = round(pa.gravy(), 4)
+        feats["Instability_Index"] = round(pa.instability_index(), 4)
+        extinction = pa.molar_extinction_coefficient()
+        feats["Extinction_Coefficient_Reduced"] = extinction[0]
+        feats["Extinction_Coefficient_Oxidized"] = extinction[1]
+        sec = pa.secondary_structure_fraction()
+        feats["SecStruct_Helix"], feats["SecStruct_Turn"], feats["SecStruct_Sheet"] = (
+            round(sec[0], 4), round(sec[1], 4), round(sec[2], 4)
+        )
+        aac = pa.amino_acids_percent
+        for aa in "ACDEFGHIKLMNPQRSTVWY":
+            if aa in aac:
+                feats[f"AAC_{aa}"] = round(aac[aa], 4)
+        required_aas = [aac.get(aa) for aa in "AVIL"]
+        if all(value is not None for value in required_aas):
+            mole_pct_A, mole_pct_V, mole_pct_I, mole_pct_L = [value * 100 for value in required_aas]
+            feats["Aliphatic_Index"] = round(
+                mole_pct_A + 2.9 * mole_pct_V + 3.9 * (mole_pct_I + mole_pct_L), 4
+            )
+    except Exception:
+        # Keep any successfully initialized values and leave failed features as NA.
+        pass
+    try:
+        for key, value in calculate_ctd(seq).items():
+            if key in feats:
+                feats[key] = value
+    except Exception:
+        pass
+    for key, value in get_high_dim_propy3_features(seq).items():
+        if key in feats:
+            feats[key] = value
     return feats
 
 
@@ -293,6 +348,7 @@ if os.path.exists(FASTA_FILE):
                 current_id = next((pid for pid in target_prots if pid in line), None)
             elif current_id: sequences[current_id] += line.strip()
 
+
 missing_sequences = [pid for pid, seq in sequences.items() if not seq]
 if missing_sequences:
     parser.error(
@@ -307,6 +363,7 @@ d_c_list = df_domains[df_domains['Protein_ID'].str.contains(can_prot_id, na=Fals
 sp_c = tx_info[can_tx]['span_end'] - tx_info[can_tx]['span_start'] + 1
 
 rows = []
+normalized_rows = []
 for alt_tx in alt_txs:
     alt_prot_id = tx_info[alt_tx]['protein_id']
     feat_a = get_all_features(sequences.get(alt_prot_id, ""))
@@ -316,7 +373,9 @@ for alt_tx in alt_txs:
     d_lost = sorted(set(d_c_list) - set(d_a_list))
     d_gained = sorted(set(d_a_list) - set(d_c_list))
     sp_a = tx_info[alt_tx]['span_end'] - tx_info[alt_tx]['span_start'] + 1
-    
+    mw_c = feat_c.get("MW", np.nan)
+    mw_a = feat_a.get("MW", np.nan)
+    mw_delta = round(mw_a - mw_c, 2) if np.isfinite(mw_a) and np.isfinite(mw_c) else np.nan
     row = {
         "Gene_ID": tx_info[can_tx]['gene_id'],
         f"{reference_label}_Transcript_ID": can_tx,
@@ -328,10 +387,9 @@ for alt_tx in alt_txs:
         f"Protein_Length_{reference_label}": len(sequences.get(can_prot_id, "")),
         f"Protein_Length_{compared_label}": len(sequences.get(alt_prot_id, "")),
         "Protein_Length_Difference": len(sequences.get(alt_prot_id, "")) - len(sequences.get(can_prot_id, "")),
-        f"Molecular_Weight_{reference_label}_Da": feat_c.get("MW", 0),
-        f"Molecular_Weight_{compared_label}_Da": feat_a.get("MW", 0),
-        "Molecular_Weight_Difference_Da": round(feat_a.get("MW", 0) - feat_c.get("MW", 0), 2),
-        "Normalized_Delta_MW": signed_normalized_difference(feat_a.get("MW", 0), feat_c.get("MW", 0)),
+        f"Molecular_Weight_{reference_label}_Da": mw_c,
+        f"Molecular_Weight_{compared_label}_Da": mw_a,
+        "Molecular_Weight_Difference_Da": mw_delta,
         f"Exon_Count_{reference_label}": len(tx_info[can_tx]['exons']),
         f"Exon_Count_{compared_label}": len(tx_info[alt_tx]['exons']),
         "Exon_Count_Difference": len(tx_info[alt_tx]['exons']) - len(tx_info[can_tx]['exons']),
@@ -347,32 +405,40 @@ for alt_tx in alt_txs:
         "Domain_Count_Gained": len(d_gained),
         "Domain_Count_Total_Change": len(d_lost) + len(d_gained)
     }
-    
-    feat_c_copy = feat_c.copy()
-    feat_c_copy.pop("MW", None); feat_a.pop("MW", None)
-    for k in feat_c_copy.keys():
-        row[f"{reference_feature_prefix}_{k}"] = feat_c_copy[k]
-        row[f"{compared_feature_prefix}_{k}"] = feat_a.get(k, 0)
-        try:
-            row[f"Delta_{k}"] = round(feat_a.get(k, 0) - feat_c_copy[k], 4)
-            row[f"Normalized_Delta_{k}"] = signed_normalized_difference(feat_a.get(k, 0), feat_c_copy[k])
-        except:
-            row[f"Delta_{k}"] = 0
-            row[f"Normalized_Delta_{k}"] = float('nan')
-            
+    normalized_values = {"MW": signed_normalized_difference(mw_a, mw_c)}
+    for k in FEATURE_NAMES:
+        reference_value = feat_c.get(k, np.nan)
+        compared_value = feat_a.get(k, np.nan)
+        row[f"{reference_feature_prefix}_{k}"] = reference_value
+        row[f"{compared_feature_prefix}_{k}"] = compared_value
+        if np.isfinite(reference_value) and np.isfinite(compared_value):
+            row[f"Delta_{k}"] = round(compared_value - reference_value, 4)
+        else:
+            row[f"Delta_{k}"] = np.nan
+        normalized_values[k] = signed_normalized_difference(compared_value, reference_value)
     rows.append(row)
+    normalized_rows.append(normalized_values)
 
 df_all_features = pd.DataFrame(rows)
 if df_all_features.empty:
     print("Error: no isoform comparison rows were generated. Please check isoform IDs, GTF, FASTA, and domain files.")
     exit(1)
 
-normalized_delta_cols = [c for c in df_all_features.columns if c.startswith('Normalized_Delta_')]
-if not normalized_delta_cols:
-    parser.error(
-        "No normalized protein feature delta columns were generated. Please check the protein FASTA sequences."
-    )
+normalized_deltas = pd.DataFrame(
+    [
+        {
+            "Normalized_Delta_MW": values["MW"],
+            **{f"Normalized_Delta_{name}": values[name] for name in FEATURE_NAMES},
+        }
+        for values in normalized_rows
+    ]
+)
+normalized_delta_cols = list(normalized_deltas.columns)
+if len(normalized_delta_cols) != 967:
+    parser.error("The in-memory normalized feature panel must contain 967 values.")
 
+# Normalized_Delta_* values are retained for ranking and plotting only; they are
+# intentionally not written to the feature CSV.
 csv_filename = os.path.join(OUT_DIR, "IsoImpact_features.csv")
 df_all_features.to_csv(csv_filename, index=False, na_rep='NA')
 print(f"[IsoImpact] Feature matrix written to {csv_filename} ({len(rows[0])} columns).")
@@ -545,9 +611,10 @@ if not df_all_features.empty:
         {'color': '#D55E00'},
     ]
     isoform_plot_data = []
-    for i, (_, row) in enumerate(df_all_features.iterrows()):
-        alt_id = row[f'{compared_label}_Transcript_ID']
-        row_delta = pd.to_numeric(row[normalized_delta_cols], errors='coerce')
+    for i, (_, normalized_row) in enumerate(normalized_deltas.iterrows()):
+        metadata_row = df_all_features.iloc[i]
+        alt_id = metadata_row[f'{compared_label}_Transcript_ID']
+        row_delta = pd.to_numeric(normalized_row, errors='coerce')
         row_delta = row_delta[np.isfinite(row_delta)]
         row_sorted_delta_cols = row_delta.sort_values(ascending=False, kind='mergesort').index.tolist()
         row_sorted_feat_names = [c.replace('Normalized_Delta_', '') for c in row_sorted_delta_cols]
@@ -632,6 +699,7 @@ if not df_all_features.empty:
                 xytext=(0.96, negative_label_y[iso_idx]),
                 textcoords='axes fraction',
                 fontsize=10, fontweight='bold', color=style['color'],
+
                 ha='right', va='center',
                 arrowprops=dict(arrowstyle='->', color=style['color'], lw=0.9),
                 bbox=dict(facecolor='white', edgecolor='none', alpha=0.78, pad=0.4),
@@ -902,3 +970,4 @@ plt.close(fig)
 
 print("[IsoImpact] Analysis complete.")
 print(f"[IsoImpact] Figure written to {output_filename}")
+
