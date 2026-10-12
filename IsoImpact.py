@@ -526,13 +526,18 @@ DOMAIN_PALETTE = [
 dynamic_domain_colors = {dom: DOMAIN_PALETTE[i % len(DOMAIN_PALETTE)] 
                          for i, dom in enumerate(unique_domains)}
 
-# Use an A4-style figure height that scales with the number of isoforms.
-fig_height = max(12, 4 + len(INPUT_TXS) * 2.0)
+# Use a single figure with the transcript/domain panel above a dynamic top-15 grid.
+alternative_count = max(len(alt_txs), 1)
+panel_columns = min(3, alternative_count)
+panel_rows = int(np.ceil(alternative_count / panel_columns))
+fig_height = max(12, 4 + len(INPUT_TXS) * 1.8 + panel_rows * 4.8)
 fig = plt.figure(figsize=(20, fig_height), dpi=300, constrained_layout=True)
-gs = GridSpec(2, 1, figure=fig, height_ratios=[len(INPUT_TXS)*0.8, 3.0])
+gs = GridSpec(1 + panel_rows, panel_columns, figure=fig,
+              height_ratios=[max(3.5, len(INPUT_TXS) * 0.8)] + [4.8] * panel_rows,
+              hspace=0.55, wspace=0.25)
 
 # ==================== [A] Genomic structure and domain map ====================
-ax_a = fig.add_subplot(gs[0, 0])
+ax_a = fig.add_subplot(gs[0, :])
 ax_a.set_title('A', loc='left', fontsize=22, fontweight='bold', pad=10)
 
 H_utr, H_cds, H_domain = 0.20, 0.40, 0.55
@@ -596,126 +601,79 @@ for d_name, color in dynamic_domain_colors.items():
 ax_a.legend(handles=legend_elements, loc='center left', bbox_to_anchor=(1.01, 0.5), frameon=False, 
             prop={'size': 20, 'weight': 'bold'}, title="Regions & Domains", title_fontproperties={'size': 22, 'weight': 'bold'})
 
-# ==================== [B] Ranked signed feature differences ====================
-ax_new = fig.add_subplot(gs[1, :])
-ax_new.set_title('B', loc='left', fontsize=22, fontweight='bold', pad=10)
-
+# ==================== [B] Top-15 relative feature differences ====================
+# Relative changes are used only for ranking and plotting; they remain out of the CSV.
 if not df_all_features.empty:
-    isoform_styles = [
-        {'color': '#0072B2'},
-        {'color': '#E69F00'},
-        {'color': '#009E73'},
-        {'color': '#CC79A7'},
-        {'color': '#56B4E9'},
-        {'color': '#F0E442'},
-        {'color': '#D55E00'},
-    ]
-    isoform_plot_data = []
+    plot_limit = 50.0
+    plot_records = []
     for i, (_, normalized_row) in enumerate(normalized_deltas.iterrows()):
         metadata_row = df_all_features.iloc[i]
         alt_id = metadata_row[f'{compared_label}_Transcript_ID']
         row_delta = pd.to_numeric(normalized_row, errors='coerce')
         row_delta = row_delta[np.isfinite(row_delta)]
-        row_sorted_delta_cols = row_delta.sort_values(ascending=False, kind='mergesort').index.tolist()
-        row_sorted_feat_names = [c.replace('Normalized_Delta_', '') for c in row_sorted_delta_cols]
-        y_vals = [float(row_delta[column]) for column in row_sorted_delta_cols]
-        isoform_plot_data.append((alt_id, y_vals, row_sorted_feat_names, isoform_styles[i % len(isoform_styles)]))
+        top_columns = (
+            row_delta.abs()
+            .sort_values(ascending=False, kind='mergesort')
+            .head(15)
+            .index
+            .tolist()
+        )
+        top_values = row_delta.loc[top_columns]
+        top_names = [column.replace('Normalized_Delta_', '') for column in top_columns]
+        plot_records.append((alt_id, top_names, top_values.to_numpy(dtype=float)))
 
-    plot_limit = 50.0
-    ax_new.set_ylim(-plot_limit, plot_limit)
+    for panel_index in range(panel_rows * panel_columns):
+        panel_row = panel_index // panel_columns + 1
+        panel_column = panel_index % panel_columns
+        ax_b = fig.add_subplot(gs[panel_row, panel_column])
+        if panel_index >= len(plot_records):
+            ax_b.axis('off')
+            continue
 
-    for idx, (alt_id, y_vals, _, style) in enumerate(isoform_plot_data):
-        x_indices = list(range(len(y_vals)))
-        # Clip display values only, after sorting the original relative changes.
+        alt_id, feature_names, y_vals = plot_records[panel_index]
+        x_indices = np.arange(len(y_vals))
         plot_values = np.clip(y_vals, -plot_limit, plot_limit)
-        
-        ax_new.vlines(
-            x_indices, 0, plot_values,
-            color=style['color'],
-            alpha=0.55,
-            linewidth=0.6,
-            label=alt_id,
-            zorder=3
+        style_color = ['#2F6F73', '#0072B2', '#E69F00'][panel_index % 3]
+
+        ax_b.vlines(
+            x_indices, 0, plot_values, color=style_color,
+            alpha=0.75, linewidth=2.2, zorder=3
         )
         for mask, marker, boundary in (
-            (np.asarray(y_vals) > plot_limit, '^', plot_limit),
-            (np.asarray(y_vals) < -plot_limit, 'v', -plot_limit),
+            (y_vals > plot_limit, '^', plot_limit),
+            (y_vals < -plot_limit, 'v', -plot_limit),
         ):
             if mask.any():
-                ax_new.scatter(np.asarray(x_indices)[mask], np.full(mask.sum(), boundary),
-                               marker=marker, s=14, color=style['color'],
-                               clip_on=False, zorder=4)
+                ax_b.scatter(
+                    x_indices[mask], np.full(mask.sum(), boundary),
+                    marker=marker, s=24, color=style_color,
+                    clip_on=False, zorder=4
+                )
 
-    ax_new.axhline(0, color='black', linewidth=1.5, zorder=2)
-    ax_new.set_xlabel(
-        'Feature rank (descending within each isoform pair)',
-        fontsize=20, fontweight='bold'
-    )
-    difference_axis_label = 'Relative feature change'
-    if COMPARISON_MODE == 'reference_pair':
-        difference_axis_label += '\n(alternative2 - alternative1) / alternative1'
-    else:
-        difference_axis_label += '\n(Alternative - Canonical) / Canonical'
-    ax_new.set_ylabel(difference_axis_label, fontsize=20, fontweight='bold')
-    ax_new.tick_params(axis='both', labelsize=18)
-    plt.setp(ax_new.get_xticklabels(), fontweight='bold')
-    plt.setp(ax_new.get_yticklabels(), fontweight='bold')
-    ax_new.spines['top'].set_visible(False)
-    ax_new.spines['right'].set_visible(False)
-    y_vis_hi = ax_new.get_ylim()[1]
-    y_vis_lo = ax_new.get_ylim()[0]
-    label_count = max(len(isoform_plot_data), 1)
-    positive_label_y = np.linspace(
-        0.90, max(0.56, 0.90 - 0.08 * (label_count - 1)), label_count
-    )
-    negative_label_y = np.linspace(
-        0.10, min(0.44, 0.10 + 0.08 * (label_count - 1)), label_count
-    )
+        ax_b.axhline(0, color='black', linewidth=1.0, zorder=2)
+        ax_b.set_ylim(-plot_limit, plot_limit)
+        ax_b.set_xlim(-0.7, max(len(y_vals) - 0.3, 0.7))
+        ax_b.set_xticks(x_indices)
+        ax_b.set_xticklabels(
+            [name if len(name) <= 22 else name[:19] + '...' for name in feature_names],
+            rotation=70, ha='right', fontsize=8
+        )
+        ax_b.tick_params(axis='y', labelsize=9)
+        ax_b.grid(axis='y', color='#D9D9D9', linewidth=0.6, alpha=0.65)
+        ax_b.spines['top'].set_visible(False)
+        ax_b.spines['right'].set_visible(False)
+        ax_b.set_title(
+            ('B  ' if panel_index == 0 else '') + alt_id,
+            loc='left', fontsize=13, fontweight='bold', pad=8
+        )
+        if panel_column == 0:
+            axis_label = 'Relative feature change\n(Alternative - Canonical) / Canonical'
+            if COMPARISON_MODE == 'reference_pair':
+                axis_label = 'Relative feature change\n(alternative2 - alternative1) / alternative1'
+            ax_b.set_ylabel(axis_label, fontsize=10, fontweight='bold')
+        else:
+            ax_b.set_ylabel('')
 
-    for iso_idx, (alt_id, y_vals, feature_names, style) in enumerate(isoform_plot_data):
-        positive_indices = [index for index, value in enumerate(y_vals) if value > 0]
-        if positive_indices:
-            feature_index = max(positive_indices, key=lambda index: y_vals[index])
-            value = y_vals[feature_index]
-            ax_new.annotate(
-                feature_names[feature_index],
-                xy=(feature_index, min(value, y_vis_hi * 0.98)),
-                xytext=(0.04, positive_label_y[iso_idx]),
-                textcoords='axes fraction',
-                fontsize=10, fontweight='bold', color=style['color'],
-                ha='left', va='center',
-                arrowprops=dict(arrowstyle='->', color=style['color'], lw=0.9),
-                bbox=dict(facecolor='white', edgecolor='none', alpha=0.78, pad=0.4),
-                clip_on=False
-            )
-
-        negative_indices = [index for index, value in enumerate(y_vals) if value < 0]
-        if negative_indices:
-            feature_index = min(negative_indices, key=lambda index: y_vals[index])
-            value = y_vals[feature_index]
-            ax_new.annotate(
-                feature_names[feature_index],
-                xy=(feature_index, max(value, y_vis_lo * 0.98)),
-                xytext=(0.96, negative_label_y[iso_idx]),
-                textcoords='axes fraction',
-                fontsize=10, fontweight='bold', color=style['color'],
-
-                ha='right', va='center',
-                arrowprops=dict(arrowstyle='->', color=style['color'], lw=0.9),
-                bbox=dict(facecolor='white', edgecolor='none', alpha=0.78, pad=0.4),
-                clip_on=False
-            )
-    legend_elements_new = [
-        patches.Patch(facecolor=style['color'], edgecolor='dimgray', label=alt_id)
-        for alt_id, _, _, style in isoform_plot_data
-    ]
-    ax_new.legend(
-        handles=legend_elements_new,
-        loc='center left', bbox_to_anchor=(1.01, 0.5), frameon=False,
-        prop={'size': 18, 'weight': 'bold'},
-        title='Alternative Isoforms' if COMPARISON_MODE == 'canonical' else 'Selected Isoforms',
-        title_fontproperties={'size': 20, 'weight': 'bold'}
-    )
 output_filename = os.path.join(OUT_DIR, "IsoImpact_figure.png")
 fig.savefig(output_filename, dpi=300, bbox_inches='tight', facecolor='white')
 
@@ -741,6 +699,7 @@ if args.difference_view:
                 for tx in alt_txs
             ]
             if any(state != reference_has_exon for state in compared_exon_states):
+
                 difference_segments.append((map_pos(segment_start), map_pos(segment_end)))
 
     full_visible_start = map_pos(boundaries[0])
