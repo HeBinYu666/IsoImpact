@@ -41,12 +41,10 @@ IsoImpact implements the following input options:
 
 ```text
 -i / --isoform   Ensembl isoform IDs to be compared. At least two isoform IDs are required.
--r               Compare two isoforms in the supplied order as alternative2 - alternative1.
 -g / --gtf       Path to the GTF annotation file.
 -f / --fasta     Path to the protein FASTA file.
 -d / --domain    Path to the domain-coordinate file.
 -o / --outdir    Directory where output files will be saved. The default is the current directory.
--z               Also write the difference-focused transcript-structure figure.
 ```
 
 The isoform IDs (`-i`) must match the supplied GTF file. The GTF file (`-g`) provides isoform, exon, CDS, UTR, gene, and protein ID annotations for the selected isoforms. The protein FASTA file (`-f`) provides the corresponding amino acid sequences. The domain-coordinate file (`-d`) provides the protein-domain annotations used for domain mapping and visualization. For human and mouse analyses, IsoImpact provides pre-built domain-coordinate files under the `data/` directory.
