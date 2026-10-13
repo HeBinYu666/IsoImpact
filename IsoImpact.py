@@ -526,18 +526,24 @@ DOMAIN_PALETTE = [
 dynamic_domain_colors = {dom: DOMAIN_PALETTE[i % len(DOMAIN_PALETTE)] 
                          for i, dom in enumerate(unique_domains)}
 
-# Use a single figure with the transcript/domain panel above a dynamic top-15 grid.
+# Size A independently of the B grid so panel labels and the domain legend
+# cannot squeeze the transcript tracks or create large gaps between panels.
 alternative_count = max(len(alt_txs), 1)
 panel_columns = min(3, alternative_count)
 panel_rows = int(np.ceil(alternative_count / panel_columns))
-fig_height = max(12, 4 + len(INPUT_TXS) * 1.8 + panel_rows * 4.8)
-fig = plt.figure(figsize=(20, fig_height), dpi=300, constrained_layout=True)
-gs = GridSpec(1 + panel_rows, panel_columns, figure=fig,
-              height_ratios=[max(3.5, len(INPUT_TXS) * 0.8)] + [4.8] * panel_rows,
-              hspace=0.55, wspace=0.25)
+legacy_height = max(12, 4 + len(INPUT_TXS) * 2.0)
+track_height_ratio = len(INPUT_TXS) * 0.8
+# Original A-axis height, measured with the legacy 20-inch-wide layout.
+a_height = (legacy_height - 1.62223) * track_height_ratio / (track_height_ratio + 3.0)
+b_height = 3.2
+b_bottom_margin = 1.35
+b_row_pitch = b_height + 1.8
+a_bottom = b_bottom_margin + b_height + (panel_rows - 1) * b_row_pitch + 0.8
+fig_height = a_bottom + a_height + 0.5
+fig = plt.figure(figsize=(20, fig_height), dpi=300, constrained_layout=False)
 
 # ==================== [A] Genomic structure and domain map ====================
-ax_a = fig.add_subplot(gs[0, :])
+ax_a = fig.add_axes([2.9 / 20, a_bottom / fig_height, 13.1 / 20, a_height / fig_height])
 ax_a.set_title('A', loc='left', fontsize=22, fontweight='bold', pad=10)
 
 H_utr, H_cds, H_domain = 0.20, 0.40, 0.55
@@ -602,7 +608,41 @@ ax_a.legend(handles=legend_elements, loc='center left', bbox_to_anchor=(1.01, 0.
             prop={'size': 20, 'weight': 'bold'}, title="Regions & Domains", title_fontproperties={'size': 22, 'weight': 'bold'})
 
 # ==================== [B] Top-15 relative feature differences ====================
-# Relative changes are used only for ranking and plotting; they remain out of the CSV.
+# Selection uses absolute relative change; the selected features are then
+# ordered by signed value to match the paper's Figure 2B panels.
+def abbreviated_feature_name(column_name, max_len=8):
+    name = column_name.replace('Normalized_Delta_', '')
+    name = re.sub(r'\s+', '_', name.strip())
+    match = re.fullmatch(
+        r'(MoreauBrotoAuto|MoranAuto|GearyAuto)_(.+?)(\d+)', name
+    )
+    if match:
+        method, property_name, lag = match.groups()
+        method_short = {'MoreauBrotoAuto': 'MB', 'MoranAuto': 'MO', 'GearyAuto': 'GE'}
+        property_short = {
+            'Hydrophobicity': 'H', 'AvFlexibility': 'F', 'Polarizability': 'P',
+            'FreeEnergy': 'E', 'ResidueASA': 'A', 'ResidueVol': 'V',
+            'Steric': 'S', 'Mutability': 'M',
+        }
+        if property_name in property_short:
+            return f"{method_short[method]}.{property_short[property_name]}{lag}"
+    replacements = [
+        ('Extinction_Coefficient_Oxidized', 'ExtCoef_Ox'),
+        ('Extinction_Coefficient_Reduced', 'ExtCoef_Red'),
+        ('Aliphatic_Index', 'Aliphatic'),
+        ('Instability_Index', 'Instability'),
+        ('MoreauBrotoAuto', 'MB'), ('MoranAuto', 'Moran'), ('GearyAuto', 'Geary'),
+        ('SecStruct_Helix', 'Helix'), ('SecStruct_Turn', 'Turn'),
+        ('SecStruct_Sheet', 'Sheet'), ('Hydrophobicity', 'Hydrophob.'),
+        ('Polarizability', 'Polariz.'), ('SecondaryStruct', 'SecStruct'),
+        ('SolventAccess', 'SolvAcc'), ('NormVDWVolume', 'VDWVol'),
+        ('Composition', 'Comp.'), ('Transition', 'Trans.'), ('Distribution', 'Dist.'),
+    ]
+    for old, new in replacements:
+        name = name.replace(old, new)
+    name = re.sub(r'CTD_([CTD])_', r'CTD\1_', name)
+    return name if len(name) <= max_len else name[:max_len - 3] + '...'
+
 if not df_all_features.empty:
     plot_limit = 50.0
     plot_records = []
@@ -611,33 +651,48 @@ if not df_all_features.empty:
         alt_id = metadata_row[f'{compared_label}_Transcript_ID']
         row_delta = pd.to_numeric(normalized_row, errors='coerce')
         row_delta = row_delta[np.isfinite(row_delta)]
-        top_columns = (
+        selected_columns = (
             row_delta.abs()
             .sort_values(ascending=False, kind='mergesort')
             .head(15)
             .index
             .tolist()
         )
-        top_values = row_delta.loc[top_columns]
-        top_names = [column.replace('Normalized_Delta_', '') for column in top_columns]
-        plot_records.append((alt_id, top_names, top_values.to_numpy(dtype=float)))
+        selected_columns = sorted(
+            selected_columns,
+            key=lambda column: float(row_delta[column]),
+            reverse=True,
+        )
+        plot_records.append(
+            (
+                alt_id,
+                [abbreviated_feature_name(column) for column in selected_columns],
+                row_delta.loc[selected_columns].to_numpy(dtype=float),
+            )
+        )
 
     for panel_index in range(panel_rows * panel_columns):
-        panel_row = panel_index // panel_columns + 1
+        panel_row = panel_index // panel_columns
         panel_column = panel_index % panel_columns
-        ax_b = fig.add_subplot(gs[panel_row, panel_column])
         if panel_index >= len(plot_records):
-            ax_b.axis('off')
             continue
+        b_left = 2.9 if panel_columns == 1 else 1.5
+        b_total_width = 13.1 if panel_columns == 1 else 18.1
+        b_gap = 0.6
+        b_width = (b_total_width - b_gap * (panel_columns - 1)) / panel_columns
+        b_bottom = b_bottom_margin + (panel_rows - panel_row - 1) * b_row_pitch
+        ax_b = fig.add_axes([
+            (b_left + panel_column * (b_width + b_gap)) / 20,
+            b_bottom / fig_height, b_width / 20, b_height / fig_height,
+        ])
 
         alt_id, feature_names, y_vals = plot_records[panel_index]
         x_indices = np.arange(len(y_vals))
         plot_values = np.clip(y_vals, -plot_limit, plot_limit)
-        style_color = ['#2F6F73', '#0072B2', '#E69F00'][panel_index % 3]
-
+        style_color = '#2F6F73'
         ax_b.vlines(
             x_indices, 0, plot_values, color=style_color,
-            alpha=0.75, linewidth=2.2, zorder=3
+            alpha=0.78, linewidth=8.4, zorder=3,
         )
         for mask, marker, boundary in (
             (y_vals > plot_limit, '^', plot_limit),
@@ -646,33 +701,36 @@ if not df_all_features.empty:
             if mask.any():
                 ax_b.scatter(
                     x_indices[mask], np.full(mask.sum(), boundary),
-                    marker=marker, s=24, color=style_color,
-                    clip_on=False, zorder=4
+                    marker=marker, s=44, color=style_color,
+                    clip_on=False, zorder=4,
                 )
-
-        ax_b.axhline(0, color='black', linewidth=1.0, zorder=2)
+        ax_b.axhline(0, color='black', linewidth=1.2, zorder=2)
         ax_b.set_ylim(-plot_limit, plot_limit)
-        ax_b.set_xlim(-0.7, max(len(y_vals) - 0.3, 0.7))
+        ax_b.set_yticks(np.arange(-50, 51, 25))
+        ax_b.set_xlim(-0.6, max(len(y_vals) - 0.4, 0.6))
         ax_b.set_xticks(x_indices)
         ax_b.set_xticklabels(
-            [name if len(name) <= 22 else name[:19] + '...' for name in feature_names],
-            rotation=70, ha='right', fontsize=8
+            feature_names, rotation=65, ha='right', rotation_mode='anchor',
+            fontsize=18, fontweight='bold',
         )
-        ax_b.tick_params(axis='y', labelsize=9)
-        ax_b.grid(axis='y', color='#D9D9D9', linewidth=0.6, alpha=0.65)
+        ax_b.tick_params(axis='y', labelsize=18, labelleft=(panel_column == 0))
+        for tick_label in ax_b.get_yticklabels():
+            tick_label.set_fontweight('bold')
+        ax_b.grid(axis='y', color='#D9D9D9', linewidth=0.6, alpha=0.85)
         ax_b.spines['top'].set_visible(False)
         ax_b.spines['right'].set_visible(False)
         ax_b.set_title(
-            ('B  ' if panel_index == 0 else '') + alt_id,
-            loc='left', fontsize=13, fontweight='bold', pad=8
+            str(alt_id), fontsize=18, fontweight='bold', pad=8,
         )
         if panel_column == 0:
-            axis_label = 'Relative feature change\n(Alternative - Canonical) / Canonical'
-            if COMPARISON_MODE == 'reference_pair':
-                axis_label = 'Relative feature change\n(alternative2 - alternative1) / alternative1'
-            ax_b.set_ylabel(axis_label, fontsize=10, fontweight='bold')
+            ax_b.set_ylabel('Relative feature change', fontsize=20, fontweight='bold', labelpad=8)
         else:
             ax_b.set_ylabel('')
+        if panel_index == 0:
+            fig.text(
+                b_left / 20, (b_bottom + b_height + 0.45) / fig_height,
+                'B', fontsize=22, fontweight='bold', ha='left', va='bottom',
+            )
 
 output_filename = os.path.join(OUT_DIR, "IsoImpact_figure.png")
 fig.savefig(output_filename, dpi=300, bbox_inches='tight', facecolor='white')
@@ -929,4 +987,5 @@ plt.close(fig)
 
 print("[IsoImpact] Analysis complete.")
 print(f"[IsoImpact] Figure written to {output_filename}")
+
 
