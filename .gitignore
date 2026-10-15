@@ -19,10 +19,6 @@ venv/
 !data/
 !data/human_domain_v110.csv
 !data/mouse_domain_v110.csv
-!data/rhesus_macaque_domain_v116.csv
-!data/fruit_fly_domain_v116.csv
-!data/rabbit_domain_v116.csv
-!data/red_deer_domain_v2023_08.csv
 !data/example_output/
 !data/example_output/IsoImpact_features.csv
 !data/example_output/IsoImpact_figure.png
