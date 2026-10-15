@@ -1,6 +1,6 @@
 # IsoImpact
 
-IsoImpact is an automated tool to evaluate the functional impact of alternative splicing based on isoform sequences. It integrates domain visualization across selected isoforms, protein feature analysis into a unified automated workflow.
+IsoImpact is an automated tool to evaluate the functional impact of alternative splicing based on isoform sequences. It integrates domain visualization across selected isoforms and protein feature analysis into a unified automated workflow.
 
 ## 1. Installation
 
@@ -30,7 +30,7 @@ pip install -r requirements.txt
 The fixed dependency versions above are the versions used for the reported analyses.
 
 IsoImpact uses the fixed 966-feature schema documented in Supplementary Table S2.
-Every output row contains the same `Can_*`, `Alt_*`, and raw `Delta_*` feature columns in that order.
+For each feature, every output row contains the same `Can_*`, `Alt_*`, and raw `Delta_*` columns, interleaved in the fixed feature-list order.
 If a feature cannot be calculated, its value and corresponding raw delta are written as `NA`.
 Relative changes are still calculated in memory for ranking and visualization, but
 `Normalized_Delta_*` columns are not written to `IsoImpact_features.csv`.
@@ -40,16 +40,25 @@ Relative changes are still calculated in memory for ranking and visualization, b
 IsoImpact implements the following input options:
 
 ```text
--i / --isoform   Ensembl isoform IDs to be compared. At least two isoform IDs are required.
--g / --gtf       Path to the GTF annotation file.
--f / --fasta     Path to the protein FASTA file.
--d / --domain    Path to the domain-coordinate file.
--o / --outdir    Directory where output files will be saved. The default is the current directory.
+-i   Ensembl isoform IDs to be compared. At least two isoform IDs are required.
+-g   Path to the GTF annotation file.
+-f   Path to the protein FASTA file.
+-d   Path to the domain-coordinate file.
+-o   Directory where output files will be saved. The default is the current directory.
 ```
 
-The isoform IDs (`-i`) must match the supplied GTF file. The GTF file (`-g`) provides isoform, exon, CDS, UTR, gene, and protein ID annotations for the selected isoforms. The protein FASTA file (`-f`) provides the corresponding amino acid sequences. The domain-coordinate file (`-d`) provides the protein-domain annotations used for domain mapping and visualization. For human and mouse analyses, IsoImpact provides pre-built domain-coordinate files under the `data/` directory.
+The isoform IDs (`-i`) must match the supplied GTF file. The GTF file (`-g`) provides isoform, exon, CDS, UTR, gene, and protein ID annotations for the selected isoforms. The protein FASTA file (`-f`) provides the corresponding amino acid sequences. The domain-coordinate file (`-d`) provides the protein-domain annotations used for domain mapping and visualization. IsoImpact provides the following pre-built domain-coordinate files under the `data/` directory:
 
-These pre-built human and mouse domain-coordinate files were generated from Ensembl release version 110, so the examples for human and mouse below use Ensembl release version 110 GTF and protein FASTA files to ensure consistent isoform IDs, protein IDs, genomic coordinates, and domain annotations. 
+| Species | Annotation version | Domain-coordinate file |
+| --- | --- | --- |
+| Human (*Homo sapiens*) | Ensembl 110 | [human_domain_v110.csv](data/human_domain_v110.csv) |
+| Mouse (*Mus musculus*) | Ensembl 110 | [mouse_domain_v110.csv](data/mouse_domain_v110.csv) |
+| Rhesus macaque (*Macaca mulatta*) | Ensembl 116 | [rhesus_macaque_domain_v116.csv](data/rhesus_macaque_domain_v116.csv) |
+| Fruit fly (*Drosophila melanogaster*) | Ensembl 116 (FlyBase gene set 63) | [fruit_fly_domain_v116.csv](data/fruit_fly_domain_v116.csv) |
+| Rabbit (*Oryctolagus cuniculus*) | Ensembl 116 | [rabbit_domain_v116.csv](data/rabbit_domain_v116.csv) |
+| Red deer (*Cervus elaphus*) | Ensembl Rapid Release 2023_08 | [red_deer_domain_v2023_08.csv](data/red_deer_domain_v2023_08.csv) |
+
+Use a GTF file and protein FASTA file from the same species and annotation version as the selected domain-coordinate file. The human and mouse examples below use Ensembl release 110 to match their pre-built domain files.
 
 ### 2.1 Example usage for evaluating impact of isoforms in humans
 
@@ -75,11 +84,11 @@ python IsoImpact.py \
   -i ENST00000421030 ENST00000440047 ENST00000413188 ENST00000409996 \
   -g references/Homo_sapiens.GRCh38.110.gtf \
   -f references/Homo_sapiens.GRCh38.pep.all.fa \
-  -d data/human_domain.csv \
+  -d data/human_domain_v110.csv \
   -o results/human_isoforms
 ```
 
-Because this example compares human isoforms, the command uses the human domain-coordinate file `data/human_domain.csv`.
+Because this example compares human isoforms from Ensembl release 110, the command uses `data/human_domain_v110.csv`.
 
 After the command is finished, IsoImpact writes the output figure to the file below:
 
@@ -87,7 +96,7 @@ After the command is finished, IsoImpact writes the output figure to the file be
 results/human_isoforms/IsoImpact_figure.png
 ```
 
-`IsoImpact_figure.png` contains the domain-mapping visualization and ranked feature-difference plot for the input isoforms. An output figure from the four human ***MROH7*** isoforms is available as [`data/example_output/IsoImpact_figure.png`](data/example_output/IsoImpact_figure.png).
+`IsoImpact_figure.png` combines the transcript/domain map (A) and a top-15 relative feature-change plot for each isoform comparison (B). The 15 finite features with the largest absolute relative changes, `(Alternative - Canonical) / Canonical`, are selected and then arranged from the largest signed value to the smallest. Values are clipped to -50 and 50 for display only, with triangles marking values beyond the limits. Panel B displays up to three comparisons per row and adds rows when needed. The CSV retains the complete feature matrix. An output figure from the four human ***MROH7*** isoforms is available as [`data/example_output/IsoImpact_figure.png`](data/example_output/IsoImpact_figure.png).
 
 ![IsoImpact output figure](data/example_output/IsoImpact_figure.png)
 
@@ -129,15 +138,15 @@ python IsoImpact.py \
   -i ENSMUST00000112701 ENSMUST00000134301 \
   -g references/Mus_musculus.GRCm39.110.gtf \
   -f references/Mus_musculus.GRCm39.pep.all.fa \
-  -d data/mouse_domain.csv \
+  -d data/mouse_domain_v110.csv \
   -o results/mouse_isoforms
 ```
 
-Because this example compares mouse isoforms, the command uses the mouse domain-coordinate file `data/mouse_domain.csv`.
+Because this example compares mouse isoforms from Ensembl release 110, the command uses `data/mouse_domain_v110.csv`.
 
-## 3. Generating genomic coordinates of domains for Other Ensembl Versions of humans/mice or for other Species
+## 3. Generating domain coordinates for other annotation versions and species
 
-For isoforms annotated in Ensembl release versions other than Ensembl release version 110, or for isoforms from other species, users can use the `build_custom_domain.R` script in the `scripts/` directory to generate a matching domain coordinate file. The generated file should be used together with the GTF and protein FASTA files from the same annotation version. The example below uses two isoforms from the ***RERE*** gene in Ensembl release version 109 to showcase this process.
+If no matching pre-built domain-coordinate file is provided in `data/`, users can use `scripts/build_custom_domain.R` when a matching species and Ensembl-release EnsDb entry is available in AnnotationHub. The script maps Pfam protein coordinates using that EnsDb database. Its `--gtf` argument records the downstream GTF path; it does not construct an EnsDb database from the GTF. The generated domain file must be used together with GTF and protein FASTA files from the same species and annotation version. The example below uses two isoforms from the ***RERE*** gene in Ensembl release 109 to showcase this process.
 
 For this process, users need:
 
@@ -155,7 +164,7 @@ BiocManager::install(c("AnnotationHub", "ensembldb", "GenomicRanges"))
 install.packages("dplyr")
 ```
 
-Second, follow the following four steps to create genomic coordinates of domains and run IsoImpact.
+Then follow these four steps to create genomic domain coordinates and run IsoImpact.
 
 Step 1. Prepare the GTF and protein FASTA files.
 
@@ -250,7 +259,7 @@ After the command is finished, IsoImpact writes the output figure to:
 results/release109_rere/IsoImpact_figure.png
 ```
 
-`IsoImpact_figure.png` contains the domain-mapping visualization and ranked feature-difference plot for the input isoforms. An output figure from two isoforms of the  ***RERE*** gene in Ensembl release 109 is available as [`data/example_release109/RERE_release109_IsoImpact_figure.png`](data/example_release109/RERE_release109_IsoImpact_figure.png).
+`IsoImpact_figure.png` contains the transcript/domain map and the top-15 relative feature-change plot described in Section 2.1. An output figure from two isoforms of the ***RERE*** gene in Ensembl release 109 is available as [`data/example_release109/RERE_release109_IsoImpact_figure.png`](data/example_release109/RERE_release109_IsoImpact_figure.png).
 
 ![IsoImpact Ensembl release version 109 ***RERE*** gene output figure](data/example_release109/RERE_release109_IsoImpact_figure.png)
 
@@ -274,5 +283,3 @@ If any questions about using IsoImpact, please contact:
 - Hong-Dong Li: hongdong@csu.edu.cn
 
 You can also click the **Issues** tab at the top of this GitHub page to report problems.
-
-

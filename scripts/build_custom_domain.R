@@ -11,7 +11,7 @@ usage <- function() {
     "  Rscript scripts/build_custom_domain.R --pfam pfam_results.txt --out domain.csv --ensembl 110\n\n",
     "Options:\n",
     "  --pfam      PfamScan result table\n",
-    "  --out       Output domain-coordinate file used by IsoImpact with -d/--domain\n",
+    "  --out       Output domain-coordinate file used by IsoImpact with -d\n",
     "  --ensembl   Ensembl release version number for the AnnotationHub EnsDb query. Default: 110\n",
     "  --species   Species name for the AnnotationHub EnsDb query. Default: Homo sapiens\n",
     "  --gtf       Optional matching GTF path for record keeping; the mapping uses AnnotationHub EnsDb\n",
