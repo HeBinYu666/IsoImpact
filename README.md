@@ -81,6 +81,8 @@ results/human_isoforms/IsoImpact_figure.png
 
 `IsoImpact_figure.png` contains the domain-mapping visualization and ranked feature-difference plot for the input isoforms. An output figure from the four human ***MROH7*** isoforms is available as [`data/example_output/IsoImpact_figure.png`](data/example_output/IsoImpact_figure.png).
 
+Upward and downward triangles at +50 and -50 indicate relative feature changes above +50 and below -50, respectively, with values clipped only for display.
+
 ![IsoImpact output figure](data/example_output/IsoImpact_figure.png)
 
 IsoImpact also writes the feature matrix of all queried isoforms into the file below:
