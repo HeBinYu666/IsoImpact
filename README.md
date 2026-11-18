@@ -1,6 +1,6 @@
 # IsoImpact
 
-IsoImpact is an automated tool to evaluate the functional impact of alternative splicing based on isoform sequences. It integrates domain visualization across selected isoforms, protein feature analysis into a unified automated workflow.
+IsoImpact is an automated tool to evaluate the functional impact of alternative splicing based on isoform sequences. It combines domain mapping and the calculation of 966 sequence-derived and physicochemical features in a single workflow. Results include an interactive HTML report and a feature table for comparing isoforms and exploring potential functional differences.
 
 ## 1. Installation
 
@@ -11,20 +11,19 @@ git clone https://github.com/HeBinYu666/IsoImpact.git
 cd IsoImpact
 ```
 
-IsoImpact is implemented in Python. It requires Python 3.8 or higher. The required Python packages are listed in `requirements.txt`:
+IsoImpact is implemented in Python. Install the package versions listed in `requirements.txt`:
 
 ```text
-numpy>=1.21
-pandas>=1.3
-matplotlib>=3.5
-biopython>=1.79
-propy3>=1.1.1
+numpy==1.24.4
+pandas==2.0.3
+matplotlib==3.7.5
+biopython==1.83
+propy3==1.1.1
+setuptools==75.3.4
 ```
 
-Install these packages with:
-
 ```bash
-pip install -r requirements.txt
+python -m pip install -r requirements.txt
 ```
 
 ## 2. Command-line options
@@ -73,17 +72,27 @@ python IsoImpact.py \
 
 Because this example compares human isoforms, the command uses the human domain-coordinate file `data/human_domain_v110.csv`.
 
-After the command is finished, IsoImpact writes the output figure to the file below:
+After the command is finished, IsoImpact writes the HTML report to the file below:
 
 ```text
-results/human_isoforms/IsoImpact_figure.png
+results/human_isoforms/IsoImpact_report.html
 ```
 
-`IsoImpact_figure.png` contains the domain-mapping visualization and ranked feature-difference plot for the input isoforms. An output figure from the four human ***MROH7*** isoforms is available as [`data/example_output/IsoImpact_figure.png`](data/example_output/IsoImpact_figure.png).
+Open `IsoImpact_report.html` in a web browser to interactively explore domain visualizations, feature comparisons, and redundancy analysis for the input isoforms.
 
-Upward and downward triangles at +50 and -50 indicate relative feature changes above +50 and below -50, respectively, with values clipped only for display.
+**[View the interactive MROH7 report](https://hebinyu666.github.io/IsoImpact/)**
 
-![IsoImpact output figure](data/example_output/IsoImpact_figure.png)
+**Domains**
+
+![Domain visualization in the MROH7 HTML report](data/example_output/IsoImpact_domains.png)
+
+**Features**
+
+![Feature comparisons in the MROH7 HTML report](data/example_output/IsoImpact_features.png)
+
+**Redundancy**
+
+![Redundancy analysis in the MROH7 HTML report](data/example_output/IsoImpact_redundancy.png)
 
 IsoImpact also writes the feature matrix of all queried isoforms into the file below:
 
@@ -237,15 +246,27 @@ python IsoImpact.py \
   -o results/release109_rere
 ```
 
-After the command is finished, IsoImpact writes the output figure to:
+After the command is finished, IsoImpact writes the HTML report to:
 
 ```text
-results/release109_rere/IsoImpact_figure.png
+results/release109_rere/IsoImpact_report.html
 ```
 
-`IsoImpact_figure.png` contains the domain-mapping visualization and ranked feature-difference plot for the input isoforms. An output figure from two isoforms of the  ***RERE*** gene in Ensembl release 109 is available as [`data/example_release109/RERE_release109_IsoImpact_figure.png`](data/example_release109/RERE_release109_IsoImpact_figure.png).
+Open `IsoImpact_report.html` in a web browser to interactively explore domain visualizations, feature comparisons, and redundancy analysis for the input isoforms.
 
-![IsoImpact Ensembl release version 109 ***RERE*** gene output figure](data/example_release109/RERE_release109_IsoImpact_figure.png)
+**[View the interactive RERE report](https://hebinyu666.github.io/IsoImpact/rere/)**
+
+**Domains**
+
+![Domain visualization in the RERE HTML report](data/example_release109/RERE_release109_domains.png)
+
+**Features**
+
+![Feature comparisons in the RERE HTML report](data/example_release109/RERE_release109_features.png)
+
+**Redundancy**
+
+![Redundancy analysis in the RERE HTML report](data/example_release109/RERE_release109_redundancy.png)
 
 IsoImpact also writes the feature matrix to:
 
@@ -267,3 +288,4 @@ If any questions about using IsoImpact, please contact:
 - Hong-Dong Li: hongdong@csu.edu.cn
 
 You can also click the **Issues** tab at the top of this GitHub page to report problems.
+
